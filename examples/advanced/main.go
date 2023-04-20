@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/halliday/go-configs"
 )
@@ -26,24 +27,30 @@ var config = Config{
 	Hostname: "example.com",
 }
 
-var configFile *string
-var overwritingFile *string
-var overwrites configs.Overwrites
+var c *configs.Config
 
 func main() {
+	var err error
+
 	// the config file is usually "config.yaml" but can be overridden with the "-config" flag
-	configFile = flag.String("config", "config.yaml", "path to config file")
-	overwritingFile = flag.String("local", "local.json", "path to local overwriting file")
+	configFile := flag.String("config", "config.yaml", "path to config file")
+	overwritingFile := flag.String("local", "local.json", "path to local overwriting file")
 
 	flag.Parse()
+
+	// ====================
 
 	// we fill the config struct with
 	// - values from the .env file (if any)
 	// - values from the environment variables
 	// - values from the config file (if any)
-	var err error
-	overwrites, err = configs.Read(&config, "APP_", *configFile, *overwritingFile)
-	if err != nil {
+	c = &configs.Config{
+		EnvPrefix:      "APP_",
+		Value:          &config,
+		File:           *configFile,
+		OverwritesFile: *overwritingFile,
+	}
+	if err := c.Read(); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// if the config file doesn't exist we use the default values
 			log.Printf("No config file found at %s. Using default values.", *configFile)
@@ -53,21 +60,32 @@ func main() {
 		}
 	}
 
+	// if there are env vars with "APP_" prefix that do not apply to the config struct
+	// we better log them so the user can remove them
+	if unusedEnvKeys := c.UnusedEnvKeys(); len(unusedEnvKeys) > 0 {
+		log.Printf("Unused environment variables: %s", strings.Join(unusedEnvKeys, ", "))
+	}
+
+	// now lets make some overwrites e.g. for generated keys that should persist between restarts
 	ov := make(configs.Overwrites)
 	if config.Key == "" {
 		ov["key"] = strconv.Itoa(rand.Int())
 		log.Printf("A random key was generated: %s", ov["key"])
 	}
-	if len(ov) > 0 {
-		overwriteConfig(ov)
+	if err := c.Overwrite(ov); err != nil {
+		log.Fatal(err)
 	}
+
+	// we are done with the config, now we can start the server
+
+	// ====================
 
 	// add a http handler to overwrite the config
 	http.HandleFunc("/config", handleOverwriteConfig)
 
 	log.Printf("Listening on %s as %s.", config.Listen, config.Hostname)
 
-	// this will block until the server is stopped or the program terminates
+	// this will block until the program terminates
 	err = http.ListenAndServe(config.Listen, nil)
 	log.Fatal(err)
 }
@@ -89,30 +107,8 @@ func handleOverwriteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := overwriteConfig(ov); err != nil {
+	if err := c.Overwrite(ov); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-}
-
-// overwriteConfig changes the config and writes the overwrites to the local overwriting file.
-func overwriteConfig(ov configs.Overwrites) error {
-	if len(ov) == 0 {
-		return nil
-	}
-
-	err := configs.OverwriteJSON(&config, ov, overwrites)
-	if err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(overwrites, "", "  ")
-	if err != nil {
-		panic(err)
-	}
-	if err := os.WriteFile(*overwritingFile, data, 0644); err != nil {
-		panic(err)
-	}
-
-	return nil
 }

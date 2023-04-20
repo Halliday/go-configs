@@ -1,10 +1,12 @@
-package configs
+package configs_test
 
 import (
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/halliday/go-configs"
 )
 
 var env = map[string]string{
@@ -13,6 +15,7 @@ var env = map[string]string{
 	"TEST_KEY9":  "1",        // boolean true
 	"TEST_KEY10": "value10",
 	"TEST_KEY12": "value12_2",
+	"TEST_KEY99": "unused value",
 }
 
 var expected = Config{
@@ -48,13 +51,24 @@ func TestRead(t *testing.T) {
 		t.Setenv(k, v)
 	}
 
-	_, err := Read(&config, "TEST_", "test/config1.json", "test/overwrite1.json")
-	if err != nil {
+	c := configs.Config{
+		Value:          &config,
+		EnvPrefix:      "TEST_",
+		File:           "test/config1.json",
+		OverwritesFile: "test/overwrite1.json",
+	}
+	if err := c.Read(); err != nil {
 		t.Fatal(err)
 	}
 	if reflect.DeepEqual(config, expected) {
 		t.Fatalf("invalid config: (expected <> got)\n%s\n%s", stringify(expected), stringify(config))
 	}
+
+	unusedEnvKeys := c.UnusedEnvKeys()
+	if len(unusedEnvKeys) != 1 || unusedEnvKeys[0] != "TEST_KEY99" {
+		t.Fatalf("invalid unused env keys: %v", unusedEnvKeys)
+	}
+
 	t.Logf("%+v", config)
 }
 
@@ -80,12 +94,12 @@ type Field10 struct {
 	valid bool
 }
 
-func (f *Field10) ParseString(s string) error {
-	if s == "value10" {
+func (f *Field10) UnmarshalText(text []byte) error {
+	if string(text) == "value10" {
 		f.valid = true
 		return nil
 	}
-	return fmt.Errorf("invalid Field10 value: %q", s)
+	return fmt.Errorf("invalid Field10 value: %s", text)
 }
 
 func stringify(v interface{}) string {

@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"encoding"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -10,12 +11,13 @@ import (
 	"time"
 )
 
-func ReadFromEnv(i any, prefix string) error {
+func (c *Config) ReadFromEnv(i any, prefix string) error {
 	v := reflect.ValueOf(i)
-	return readFromEnv(v, prefix)
+	c.UsedEnvKeys = make([]string, 0)
+	return c.readFromEnv(v, prefix)
 }
 
-func readFromEnv(v reflect.Value, prefix string) error {
+func (c *Config) readFromEnv(v reflect.Value, prefix string) error {
 	if !hasEnv(v.Type(), prefix) {
 		return nil
 	}
@@ -27,7 +29,7 @@ func readFromEnv(v reflect.Value, prefix string) error {
 
 		tag, err := ParseEnvTag(f.Tag.Get("env"))
 		if err != nil {
-			return fmt.Errorf("config: bad env tag on %T: %q", v.Type(), tag)
+			return fmt.Errorf("bad env tag on %T: %q", v.Type(), tag)
 		}
 		if tag.Name == "-" {
 			continue
@@ -35,15 +37,16 @@ func readFromEnv(v reflect.Value, prefix string) error {
 		if tag.Name == "" {
 			tag.Name = strings.ToUpper(f.Name)
 		}
-		name := prefix + tag.Name
-		val, ok := os.LookupEnv(name)
+		key := prefix + tag.Name
+		val, ok := os.LookupEnv(key)
 		if ok {
 			if err := assignString(v.Field(i), val); err != nil {
-				return fmt.Errorf("config: failed to parse env %q: %v", tag.Name, err)
+				return fmt.Errorf("failed to parse env %q: %v", tag.Name, err)
 			}
+			c.UsedEnvKeys = append(c.UsedEnvKeys, key)
 			continue
 		}
-		if err := readFromEnv(v.Field(i), name+"_"); err != nil {
+		if err := c.readFromEnv(v.Field(i), key+"_"); err != nil {
 			return err
 		}
 	}
@@ -99,10 +102,6 @@ func deepNew(v reflect.Value) reflect.Value {
 	return v
 }
 
-type StringParser interface {
-	ParseString(string) error
-}
-
 var timeType = reflect.TypeOf((*time.Time)(nil)).Elem()
 var byteSliceType = reflect.TypeOf((*[]byte)(nil)).Elem()
 
@@ -110,8 +109,8 @@ func assignString(v reflect.Value, str string) error {
 	v = deepNew(v)
 
 	i := v.Addr().Interface()
-	if p, ok := i.(StringParser); ok {
-		return p.ParseString(str)
+	if p, ok := i.(encoding.TextUnmarshaler); ok {
+		return p.UnmarshalText([]byte(str))
 	}
 
 	if v.Type() == timeType {
