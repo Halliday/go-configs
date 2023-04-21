@@ -67,7 +67,13 @@ func setEnvText(v reflect.Value, key string, value string) (ok bool, err error) 
 			return true, assignString(v.Field(i), value)
 		}
 		if strings.HasPrefix(key, tag.Name+"_") {
-			return setEnvText(v.Field(i), key[len(tag.Name)+1:], value)
+			ok, err := setEnvText(v.Field(i), key[len(tag.Name)+1:], value)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				return true, nil
+			}
 		}
 	}
 	return false, nil

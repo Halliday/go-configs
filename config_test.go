@@ -10,12 +10,13 @@ import (
 )
 
 var env = map[string]string{
-	"TEST_KEY7":  "value7",
-	"TEST_KEY8":  "dmFsdWU4", // base64 encoded "value8"
-	"TEST_KEY9":  "1",        // boolean true
-	"TEST_KEY10": "value10",
-	"TEST_KEY12": "value12_2",
-	"TEST_KEY99": "unused value",
+	"TEST_KEY7":      "value7",
+	"TEST_KEY8":      "dmFsdWU4", // base64 encoded "value8"
+	"TEST_KEY9":      "1",        // boolean true
+	"TEST_KEY10":     "value10",
+	"TEST_KEY12":     "value12_2",
+	"TEST_KEY99":     "unused value",
+	"TEST_KEY13_FOO": "foo",
 }
 
 var expected = Config{
@@ -39,6 +40,8 @@ var expected = Config{
 	Key11: nil,
 	// overwritten by overwrite1.json
 	Key12: "value12_3",
+	//
+	Key13Foo: "foo",
 }
 
 var config = Config{
@@ -88,6 +91,10 @@ type Config struct {
 	Key10 *Field10  `json:"key10" yaml:"key10" env:"KEY10"`
 	Key11 *struct{} `json:"key11" yaml:"key11" env:"KEY11"`
 	Key12 string    `json:"key12" yaml:"key12" env:"KEY12"`
+
+	Key13       string `json:"key13" yaml:"key13" env:"KEY13"`
+	Key13Foo    string `json:"key13_foo" yaml:"key13_foo" env:"KEY13_FOO"`
+	Key13FooTwo string `json:"key13_foo_bar" yaml:"key13_foo_bar" env:"KEY13_FOO_BAR"`
 }
 
 type Field10 struct {
