@@ -3,33 +3,59 @@ package configs
 import (
 	"encoding"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func (c *Config) ReadFromEnv(i any, prefix string) error {
 	v := reflect.ValueOf(i)
-	c.UsedEnvKeys = make([]string, 0)
-	return c.readFromEnv(v, prefix)
+	c.usedEnvKeys = make([]string, 0)
+
+	var errs []error
+
+	for _, env := range os.Environ() {
+		if !strings.HasPrefix(env, prefix) {
+			continue
+		}
+		i := strings.Index(env, "=")
+		if i == -1 {
+			continue
+		}
+		key, value := env[len(prefix):i], env[i+1:]
+		ok, err := setEnvText(v, key, value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("env %q: %w", key, err))
+			continue
+		}
+		if ok {
+			c.usedEnvKeys = append(c.usedEnvKeys, prefix+key)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
-func (c *Config) readFromEnv(v reflect.Value, prefix string) error {
-	if !hasEnv(v.Type(), prefix) {
-		return nil
+func setEnvText(v reflect.Value, key string, value string) (ok bool, err error) {
+	if key == "" {
+		return true, assignString(v, value)
+	}
+	if !matchesEnvKey(v.Type(), key) {
+		return false, nil
 	}
 	v = deepNew(v)
+	if v.Kind() != reflect.Struct {
+		return false, nil
+	}
 	t := v.Type()
-
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-
 		tag, err := ParseEnvTag(f.Tag.Get("env"))
 		if err != nil {
-			return fmt.Errorf("bad env tag on %T: %q", v.Type(), tag)
+			return false, fmt.Errorf("bad env tag on %T: %q", v.Type(), tag)
 		}
 		if tag.Name == "-" {
 			continue
@@ -37,24 +63,60 @@ func (c *Config) readFromEnv(v reflect.Value, prefix string) error {
 		if tag.Name == "" {
 			tag.Name = strings.ToUpper(f.Name)
 		}
-		key := prefix + tag.Name
-		val, ok := os.LookupEnv(key)
-		if ok {
-			if err := assignString(v.Field(i), val); err != nil {
-				return fmt.Errorf("failed to parse env %q: %v", tag.Name, err)
-			}
-			c.UsedEnvKeys = append(c.UsedEnvKeys, key)
-			continue
+		if key == tag.Name {
+			return true, assignString(v.Field(i), value)
 		}
-		if err := c.readFromEnv(v.Field(i), key+"_"); err != nil {
-			return err
+		if strings.HasPrefix(key, tag.Name+"_") {
+			return setEnvText(v.Field(i), key[len(tag.Name)+1:], value)
 		}
 	}
-
-	return nil
+	return false, nil
 }
 
-func hasEnv(t reflect.Type, prefix string) bool {
+// func (c *Config) ReadFromEnv(i any, prefix string) error {
+// 	v := reflect.ValueOf(i)
+// 	c.UsedEnvKeys = make([]string, 0)
+// 	return c.readFromEnv(v, prefix)
+// }
+
+// func (c *Config) readFromEnv(v reflect.Value, prefix string) error {
+// 	if !hasEnv(v.Type(), prefix) {
+// 		return nil
+// 	}
+// 	v = deepNew(v)
+// 	t := v.Type()
+
+// 	for i := 0; i < t.NumField(); i++ {
+// 		f := t.Field(i)
+
+// 		tag, err := ParseEnvTag(f.Tag.Get("env"))
+// 		if err != nil {
+// 			return fmt.Errorf("bad env tag on %T: %q", v.Type(), tag)
+// 		}
+// 		if tag.Name == "-" {
+// 			continue
+// 		}
+// 		if tag.Name == "" {
+// 			tag.Name = strings.ToUpper(f.Name)
+// 		}
+// 		key := prefix + tag.Name
+// 		val, ok := os.LookupEnv(key)
+// 		if ok {
+// 			if err := assignString(v.Field(i), val); err != nil {
+// 				return fmt.Errorf("failed to parse env %q: %v", tag.Name, err)
+// 			}
+// 			c.UsedEnvKeys = append(c.UsedEnvKeys, key)
+// 			continue
+// 		}
+// 		if err := c.readFromEnv(v.Field(i), key+"_"); err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	return nil
+// }
+
+func matchesEnvKey(t reflect.Type, key string) bool {
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
@@ -73,12 +135,13 @@ func hasEnv(t reflect.Type, prefix string) bool {
 		if tag.Name == "" {
 			tag.Name = strings.ToUpper(f.Name)
 		}
-		name := prefix + tag.Name
-		if _, ok := os.LookupEnv(name); ok {
+		if tag.Name == key {
 			return true
 		}
-		if hasEnv(f.Type, name+"_") {
-			return true
+		if strings.HasPrefix(key, tag.Name+"_") {
+			if matchesEnvKey(f.Type, key[len(tag.Name)+1:]) {
+				return true
+			}
 		}
 	}
 	return false
@@ -102,7 +165,6 @@ func deepNew(v reflect.Value) reflect.Value {
 	return v
 }
 
-var timeType = reflect.TypeOf((*time.Time)(nil)).Elem()
 var byteSliceType = reflect.TypeOf((*[]byte)(nil)).Elem()
 
 func assignString(v reflect.Value, str string) error {
@@ -111,15 +173,6 @@ func assignString(v reflect.Value, str string) error {
 	i := v.Addr().Interface()
 	if p, ok := i.(encoding.TextUnmarshaler); ok {
 		return p.UnmarshalText([]byte(str))
-	}
-
-	if v.Type() == timeType {
-		t, err := time.Parse(time.RFC3339, str)
-		if err != nil {
-			return err
-		}
-		v.Set(reflect.ValueOf(t))
-		return nil
 	}
 
 	if v.Type() == byteSliceType {

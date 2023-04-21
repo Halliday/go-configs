@@ -19,7 +19,12 @@ type Config struct {
 	IgnoreEnv      bool
 	IgnoreDotEnv   bool
 	OverwritesFile string
-	UsedEnvKeys    []string
+
+	usedEnvKeys []string
+}
+
+func (c *Config) UsedEnvKeys() []string {
+	return c.usedEnvKeys
 }
 
 func (c *Config) UnusedEnvKeys() []string {
@@ -33,7 +38,7 @@ func (c *Config) UnusedEnvKeys() []string {
 			continue
 		}
 		key = key[:i]
-		if !stringsSliceContains(c.UsedEnvKeys, key) {
+		if !stringsSliceContains(c.usedEnvKeys, key) {
 			keys = append(keys, key)
 		}
 	}
