@@ -173,7 +173,7 @@ func deepNew(v reflect.Value) reflect.Value {
 
 var byteSliceType = reflect.TypeOf((*[]byte)(nil)).Elem()
 
-func assignString(v reflect.Value, str string) error {
+func assignString(v reflect.Value, str string) (err error) {
 	v = deepNew(v)
 
 	i := v.Addr().Interface()
@@ -182,7 +182,12 @@ func assignString(v reflect.Value, str string) error {
 	}
 
 	if v.Type() == byteSliceType {
-		data, err := base64.StdEncoding.DecodeString(str)
+		var data []byte
+		if strings.ContainsAny(str, "+/") {
+			data, err = base64.RawStdEncoding.DecodeString(str)
+		} else {
+			data, err = base64.RawURLEncoding.DecodeString(str)
+		}
 		if err != nil {
 			return err
 		}
