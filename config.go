@@ -68,22 +68,20 @@ func (c *Config) Read() (err error) {
 				}
 			}
 		}
-		if err = ReadFromFile(c.Value, c.File); err != nil {
-			return err
-		}
+		err = ReadFromFile(c.Value, c.File)
 	}
 	if c.OverwritesFile != "" {
-		if c.Overwrites, err = ReadOverwritingFile(c.Value, c.OverwritesFile); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
+		var err2 error
+		if c.Overwrites, err2 = ReadOverwritingFile(c.Value, c.OverwritesFile); err2 != nil {
+			if errors.Is(err2, fs.ErrNotExist) {
 				// the overwriting file is optional
 				c.Overwrites = make(Overwrites)
-				err = nil
 			} else {
-				return err
+				return err2
 			}
 		}
 	}
-	return nil
+	return err
 }
 
 func Read(i any, envPrefix string, file string) (err error) {

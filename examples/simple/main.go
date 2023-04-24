@@ -31,8 +31,7 @@ func main() {
 	// - values from the .env file (if any)
 	// - values from the environment variables
 	// - values from the config file (if any)
-	var err error
-	_, err = configs.Read(&config, "APP_", *configFile, "")
+	err := configs.Read(&config, "APP_", *configFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// if the config file doesn't exist we use the default values
